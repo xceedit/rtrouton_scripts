@@ -1,11 +1,13 @@
 #!/bin/sh
-# Modified 10/10/2013
-Version=1.5
+# Modified 11/16/2015
+Version=1.8
 # MigrateUserHomeToDomainAcct.sh
 # Patrick Gallagher
 # Emory College
 #
 # Modified by Rich Trouton
+#
+# Modified by Donald Paul (dpaul@xceedit.com)
 #
 # Version 1.2 - Added the ability to check if the OS is running on Mac OS X 10.7, and run "killall opendirectoryd"
 # instead of "killall DirectoryService" if it is.
@@ -17,17 +19,22 @@ Version=1.5
 #
 # Version 1.5 - Fixed the admin rights functionality so that it actually now grants admin rights
 #
+# Version 1.6 - Donald Paul - Fixed the listUsers so it still captures usernames that contain "_", but ignores those that begin with "_". 
+#
+# Version 1.7 - Donald Paul - Improved logic for existing user folders, in a case where the domain user and local user are identical.
+#
+# Version 1.8 - Donald Paul - Added logic to link the old directory to the new directory, to fix issues with certain apps like dropbox.
 
 clear
 
 netIDprompt="Please enter the AD account for this user: "
-listUsers="$(/usr/bin/dscl . list /Users | grep -v _ | grep -v root | grep -v uucp | grep -v amavisd | grep -v nobody | grep -v messagebus | grep -v daemon | grep -v www | grep -v Guest | grep -v xgrid | grep -v windowserver | grep -v unknown | grep -v unknown | grep -v tokend | grep -v sshd | grep -v securityagent | grep -v mailman | grep -v mysql | grep -v postfix | grep -v qtss | grep -v jabber | grep -v cyrusimap | grep -v clamav | grep -v appserver | grep -v appowner) FINISHED"
+listUsers="$(/usr/bin/dscl . list /Users | grep -v ^_ | grep -v root | grep -v uucp | grep -v amavisd | grep -v nobody | grep -v messagebus | grep -v daemon | grep -v www | grep -v Guest | grep -v xgrid | grep -v windowserver | grep -v unknown | grep -v unknown | grep -v tokend | grep -v sshd | grep -v securityagent | grep -v mailman | grep -v mysql | grep -v postfix | grep -v qtss | grep -v jabber | grep -v cyrusimap | grep -v clamav | grep -v appserver | grep -v appowner) FINISHED"
 #listUsers="$(/usr/bin/dscl . list /Users | grep -v -e _ -e root -e uucp -e nobody -e messagebus -e daemon -e www -v Guest -e xgrid -e windowserver -e unknown -e tokend -e sshd -e securityagent -e mailman -e mysql -e postfix -e qtss -e jabber -e cyrusimap -e clamav -e appserver -e appowner) FINISHED"
 FullScriptName=`basename "$0"`
 ShowVersion="$FullScriptName $Version"
 check4AD=`/usr/bin/dscl localhost -list . | grep "Active Directory"`
 osvers=$(sw_vers -productVersion | awk -F. '{print $2}')
-lookupAccount=helpdesk
+lookupAccount=xceedit
 OS=`/usr/bin/sw_vers | grep ProductVersion | cut -c 17-20`
 
 echo "********* Running $FullScriptName Version $Version *********"
@@ -111,17 +118,20 @@ until [ "$user" == "FINISHED" ]; do
 				fi
 				sleep 20
 				/usr/bin/id $netname
-				# Check if there's a home folder there already, if there is, exit before we wipe it
-				if [ -f /Users/$netname ]; then
-					echo "Oops, theres a home folder there already for $netname.\nIf you don't want that one, delete it in the Finder first,\nthen run this script again."
-					exit 1
-				else
-					/bin/mv /Users/old_$user /Users/$netname
-					/usr/sbin/chown -R ${netname} /Users/$netname
-					echo "Home for $netname now located at /Users/$netname"
-					/System/Library/CoreServices/ManagedClient.app/Contents/Resources/createmobileaccount -n $netname
-					echo "Account for $netname has been created on this computer"			
+				link=yes
+				if ls /Users/$netname >/dev/null 2>/dev/null; then
+                                  echo "User's directory exists. Is the domain user and local user named the same? [y/n]"
+ 				  read same
+				  [ $same != "y" ] && exit
+                                  link=no
 				fi
+				/bin/mv /Users/old_$user /Users/$netname
+				/bin/mv $userHome $userHome.old	
+				[ $link != "no" ] && ln -s /Users/$netname $userHome
+				/usr/sbin/chown -R ${netname} /Users/$netname
+				echo "Home for $netname now located at /Users/$netname"
+				/System/Library/CoreServices/ManagedClient.app/Contents/Resources/createmobileaccount -n $netname
+				echo "Account for $netname has been created on this computer"			
 				echo "Do you want to give the $netname account admin rights?"
 				select yn in "Yes" "No"; do
     					case $yn in
